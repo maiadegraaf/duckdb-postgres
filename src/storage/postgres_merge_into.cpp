@@ -116,8 +116,8 @@ PhysicalOperator &PostgresCatalog::PlanMergeInto(ClientContext &context, Physica
 		actions.emplace(entry.first, std::move(planned_actions));
 	}
 
-	return planner.Make<PhysicalMergeInto>(op.types, plan, std::move(actions), op.row_id_start, op.source_marker,
-	                                       false, op.return_chunk);
+	return planner.Make<PhysicalMergeInto>(op.types, plan, std::move(actions), op.row_id_start, op.source_marker, false,
+	                                       op.return_chunk);
 }
 
 } // namespace duckdb
