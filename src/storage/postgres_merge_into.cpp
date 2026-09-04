@@ -100,6 +100,7 @@ unique_ptr<MergeIntoOperator> PostgresPlanMergeIntoAction(PostgresCatalog &catal
 	return result;
 }
 
+// TODO: consider using generic PlanMergeInto from the base class
 PhysicalOperator &PostgresCatalog::PlanMergeInto(ClientContext &context, PhysicalPlanGenerator &planner,
                                                  LogicalMergeInto &op, PhysicalOperator &plan) {
 	if (op.return_chunk) {
@@ -108,18 +109,27 @@ PhysicalOperator &PostgresCatalog::PlanMergeInto(ClientContext &context, Physica
 	map<MergeActionCondition, vector<unique_ptr<MergeIntoOperator>>> actions;
 
 	// plan the merge into clauses
+	// disable parallelism when we have multiple operations
+	idx_t append_count = 0;
 	for (auto &entry : op.actions) {
 		vector<unique_ptr<MergeIntoOperator>> planned_actions;
 		for (auto &action : entry.second) {
+			if (action->action_type == MergeActionType::MERGE_INSERT ||
+			    action->action_type == MergeActionType::MERGE_UPDATE ||
+			    action->action_type == MergeActionType::MERGE_DELETE) {
+				append_count++;
+			}
 			planned_actions.push_back(PostgresPlanMergeIntoAction(*this, context, op, planner, *action, plan));
 		}
 		actions.emplace(entry.first, std::move(planned_actions));
 	}
 
-	auto &result = planner.Make<PhysicalMergeInto>(op.types, std::move(actions), op.row_id_start, op.source_marker,
-	                                               false, op.return_chunk);
-	result.children.push_back(plan);
-	return result;
+	bool parallel = false; // append_count <= 1 && !op.return_chunk;
+	// multiple operators appending to the same table cannot run concurrently - run their actions one after the other
+	bool serialize_actions = append_count > 1;
+
+	return planner.Make<PhysicalMergeInto>(op.types, plan, std::move(actions), op.row_id_start, op.source_marker,
+	                                       parallel, op.return_chunk, serialize_actions);
 }
 
 } // namespace duckdb
